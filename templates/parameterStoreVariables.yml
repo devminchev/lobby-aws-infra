@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create /personalised-lobby/dev/* entries in Parameter Store (as String)
+
+Parameters:
+  ContentfulAccessToken:
+    Type: String
+    NoEcho: true
+    Description: Contentful Access Token
+  ContentfulEnvironment:
+    Type: String
+    Description: Contentful Environment (e.g. dev, staging, prod)
+  ContentfulSigningSecret:
+    Type: String
+    NoEcho: true
+    Description: Contentful Signing Secret
+  ContentfulSpaceLocale:
+    Type: String
+    Description: Contentful Space Locale (e.g. en-US)
+  EnableXray:
+    Type: String
+    Description: Enable X‑Ray tracing (true/false)
+  ExecutionEnvironment:
+    Type: String
+    Description: Lambda execution environment (e.g. nodejs18.x)
+  Host:
+    Type: String
+    Description: Application host name or URL
+  OsPass:
+    Type: String
+    NoEcho: true
+    Description: OS‑level password
+  OsUser:
+    Type: String
+    Description: OS‑level username
+  SpaceId:
+    Type: String
+    Description: Contentful Space ID
+
+Resources:
+  ContentfulAccessTokenParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/CONTENTFUL_ACCESS_TOKEN
+      Description: Contentful Access Token
+      Type: String
+      Value: !Ref ContentfulAccessToken
+      Tier: Standard
+
+  ContentfulEnvironmentParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/CONTENTFUL_ENVIRONMENT
+      Description: Contentful Environment
+      Type: String
+      Value: !Ref ContentfulEnvironment
+      Tier: Standard
+
+  ContentfulSigningSecretParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/CONTENTFUL_SIGNING_SECRET
+      Description: Contentful Signing Secret
+      Type: String
+      Value: !Ref ContentfulSigningSecret
+      Tier: Standard
+
+  ContentfulSpaceLocaleParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/CONTENTFUL_SPACE_LOCALE
+      Description: Contentful Space Locale
+      Type: String
+      Value: !Ref ContentfulSpaceLocale
+      Tier: Standard
+
+  EnableXrayParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/ENABLE_XRAY
+      Description: Enable X‑Ray tracing
+      Type: String
+      Value: !Ref EnableXray
+      Tier: Standard
+
+  ExecutionEnvironmentParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/EXECUTION_ENVIRONMENT
+      Description: Lambda Execution Environment
+      Type: String
+      Value: !Ref ExecutionEnvironment
+      Tier: Standard
+
+  HostParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/HOST
+      Description: Application Host
+      Type: String
+      Value: !Ref Host
+      Tier: Standard
+
+  OsPassParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/OS_PASS
+      Description: OS Password
+      Type: String
+      Value: !Ref OsPass
+      Tier: Standard
+
+  OsUserParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/OS_USER
+      Description: OS User
+      Type: String
+      Value: !Ref OsUser
+      Tier: Standard
+
+  SpaceIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /personalised-lobby/dev/SPACE_ID
+      Description: Contentful Space ID
+      Type: String
+      Value: !Ref SpaceId
+      Tier: Standard
+
+Outputs:
+  ParameterNames:
+    Description: All created parameter names
+    Value: |
+      /personalised-lobby/dev/CONTENTFUL_ACCESS_TOKEN
+      /personalised-lobby/dev/CONTENTFUL_ENVIRONMENT
+      /personalised-lobby/dev/CONTENTFUL_SIGNING_SECRET
+      /personalised-lobby/dev/CONTENTFUL_SPACE_LOCALE
+      /personalised-lobby/dev/ENABLE_XRAY
+      /personalised-lobby/dev/EXECUTION_ENVIRONMENT
+      /personalised-lobby/dev/HOST
+      /personalised-lobby/dev/OS_PASS
+      /personalised-lobby/dev/OS_USER
+      /personalised-lobby/dev/SPACE_ID

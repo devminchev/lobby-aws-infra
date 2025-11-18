@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: OpenSearch Deployment
+
+Parameters:
+  MasterUserName:
+    Type: String
+    NoEcho: true
+    Description: Master username for OpenSearch
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for OpenSearch
+    MinLength: 8
+    MaxLength: 32
+
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: lobby-opensearch
+      EngineVersion: OpenSearch_2.17
+      ClusterConfig:
+        InstanceCount: 1
+        InstanceType: t3.medium.search
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: 50
+        Iops: 3000
+        Throughput: 125
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: es:*
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/lobby-opensearch/*
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: true
+        MasterUserOptions:
+          MasterUserName: !Ref MasterUserName
+          MasterUserPassword: !Ref MasterUserPassword
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      EncryptionAtRestOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: lobby_os
+      StageName: Dev
+      DefinitionBody:
+        openapi: '3.0'
+        info:
+          title: OpenSearch Proxy
+        paths:
+          /lobby/{proxy+}:
+            x-amazon-apigateway-any-method:
+              parameters:
+                - name: proxy
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses: {}
+              x-amazon-apigateway-integration:
+                uri: !Sub https://${OpenSearchDomain.DomainEndpoint}/{proxy}
+                httpMethod: ANY
+                type: http_proxy
+                connectionType: INTERNET
+                passthroughBehavior: when_no_match
+                requestParameters:
+                  integration.request.path.proxy: method.request.path.proxy
+      EndpointConfiguration: REGIONAL
+      TracingEnabled: true
+
+Outputs:
+  OpenSearchEndpoint:
+    Description: OpenSearch Domain Endpoint
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+  ApiGatewayEndpoint:
+    Description: API Gateway Endpoint
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/Dev/lobby/
