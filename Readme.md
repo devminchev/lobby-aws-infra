@@ -1,228 +1,179 @@
-# 🚀 OpenSearch with API Gateway Dev Stack Deployment Guide
+# Lobby AWS Infra
 
-## TL;DR Quick Commands
+Automated infrastructure and operational scripts for deploying the Personalised Lobby OpenSearch stack, managing Contentful secrets, and synchronising Lambda deployment data with the internal version dashboard.
 
-### Infra Deployment
+## 🌍 Project Purpose
 
-- `./deploy.sh` – interactive CloudFormation deploy (EU/US/Lab) using credentials from `.env`.
-- `./deploy-ssm.sh` – push `.env` secrets into SSM Parameter Store before stack deploys.
+This repository exists to make it easy for engineers to:
 
-### Get/Update Deployables Version Scripts
+1. **Bootstrap OpenSearch + API Gateway dev stacks** across EU, US, Lab, and Gen‑AI AWS accounts using a single CloudFormation template and wrapper script.
+2. **Publish sensitive configuration** (Contentful tokens, OpenSearch credentials, runtime flags) into AWS Systems Manager Parameter Store in a consistent, auditable way.
+3. **Inspect and update live Lambda versions** that power the lobby backend so Product & Ops teams always know which container images are running in staging/production.
 
-- `./scripts/get_latest_deployed_lambda_versions.sh` – list Lambdas with parsed image tag versions.
-- `ENV=stg MODE=manual node node_scripts/versionDashboardUpdate.js` – generate curl JSON for Consul updates.
-- `ENV=prod MODE=auto node node_scripts/versionDashboardUpdate.js` – push versions straight to Consul and verify.
-- `node node_scripts/getDeployedVersions.js` – print staging & prod dashboard versions via curl.
-- `./scripts/get_deployed_versions_vers_dash.sh [stg|prod]` – Bash variant to read dashboard versions (defaults to both).
+The scripts are intentionally lightweight (Bash + Node.js) so they can run from any developer workstation or CI runner without additional tooling.
 
-## 📌 Purpose
+## 🧰 Tech Stack
 
-This project provides **consistent stack creation** for AWS OpenSearch Dev Environments.  
-It enables **automated deployment** via **AWS CloudFormation** using **VS Code & AWS CLI**, and now also includes a script to safely deploy secrets into AWS Systems Manager Parameter Store.
+| Area | Technology | Purpose |
+| --- | --- | --- |
+| Infrastructure as Code | **AWS CloudFormation** templates (`templates/`) | Define OpenSearch domains, API Gateway proxies, and Parameter Store entries. |
+| Automation scripts | **Bash** (`deploy.sh`, `deploy-ssm.sh`, `scripts/*.sh`) | Wrap CloudFormation CLI commands, fetch Lambda metadata, and query Consul. |
+| Runtime scripting | **Node.js 18+** (`node_scripts/*.js`) | Post-process Bash output and orchestrate version dashboard updates. |
+| Secrets/config | **AWS Systems Manager Parameter Store** | Stores Contentful, OpenSearch, and runtime settings per environment. |
+| Observability | **AWS X-Ray toggle** | Controlled via Parameter Store to trace Lambda invocations when enabled. |
 
----
+## 🏗️ Architecture Overview
 
-## 📦 Project Structure
+High level components:
 
-```text
-.
-├── scripts/                     # Helper scripts to manage our resources
-├── templates/
-│   ├── osGatewayDevStack.yml    # CloudFormation template for OpenSearch & API Gateway
-│   ├── ssm-params.yml           # CloudFormation template for SSM Parameter Store secrets
-├── .env                         # Environment variables (ignored by Git)
-├── .env_example                 # Example env file for users to copy
-├── deploy.sh                    # Deployment script for OpenSearch & API Gateway stack
-├── deploy-ssm.sh                # Deployment script to push secrets into SSM Parameter Store
-├── .gitignore                   # Ignores secrets & generated files
-└── README.md                    # This guide
+1. **OpenSearch Domain** – defined in `templates/osGatewayDevStack*.yml` with encrypted storage, HTTPS-only endpoints, node-to-node encryption, and optional EU/US variants.
+2. **API Gateway HTTP proxy** – created via the same template and exposes `/lobby/{proxy+}` to securely tunnel requests to OpenSearch without exposing the domain publicly.
+3. **Parameter Store stack** – `templates/parameterStoreVariables.yml` provisions `/personalised-lobby/dev/*` keys for Contentful + OpenSearch configuration, populated via `deploy-ssm.sh`.
+4. **Operational tooling** – Bash scripts collect Lambda image tags, while Node scripts map them to Consul version dashboard entries for staging/production environments.
+
+```
+Developer Laptop ─┬─ deploy-ssm.sh ──▶ CloudFormation stack: Parameter Store secrets
+                  ├─ deploy.sh ─────▶ CloudFormation stack: OpenSearch + API Gateway
+                  └─ versionDashboardUpdate.js ─▶ Consul version dashboard via proxy
 ```
 
-## ⚙️ Setup
+## 📁 Repository Structure
 
-### 1️⃣ Install Required Tools
+```
+.
+├── deploy.sh / deploy-ssm.sh       # Wrapper scripts for CloudFormation deployments
+├── templates/                      # CloudFormation templates (OpenSearch, Parameter Store, variants)
+├── scripts/                        # Bash helpers (Lambda version discovery, dashboard reads)
+├── node_scripts/                   # Node utilities for Consul version management
+├── docs/infra_deployment.md        # Notes on why CloudFormation (not SAM) is used
+└── Readme.md                       # You are here
+```
 
-Ensure you have the following installed:
+## 🚀 Getting Started
 
-- **AWS CLI** → [Install Guide](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html)
-- **AWS Toolkit for VS Code** (Optional, for AWS UI inside VS Code) → [Install and Usage Guide](https://docs.aws.amazon.com/infrastructure-composer/latest/dg/using-composer-ide.html)
-- **CloudFormation Permissions** (IAM role must have `cloudformation:*` permissions) - if you are using our shared dev account that is already granted.
+### 1. Prerequisites
 
-### 2️⃣ Configure AWS Credentials
+- AWS CLI v2 with access to the relevant sandbox/prod accounts.
+- Optional: AWS Toolkit for VS Code if you prefer a UI for credential/profile switching.
+- Node.js 18+ for the `node_scripts` utilities.
+- `curl` available on your PATH (used by scripts + Consul interactions).
 
-[Docs](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/connect.html)
+### 2. Configure AWS credentials
 
-Run:
+Create or update the named profiles referenced by the scripts (e.g. `lobby-playground`, `lobby-playground-us`, etc.).
 
 ```sh
 aws configure --profile lobby-playground
 ```
 
-Or if you're already setup use/edit:
+Repeat for every AWS account you need to target. Credentials live in `~/.aws/credentials` and `~/.aws/config`.
+
+### 3. Prepare environment variables
+
+Copy the sample environment file and fill in all placeholders:
 
 ```sh
-~/.aws/credentials
-~/.aws/config
+cp .env_example .env
 ```
 
-### 3️⃣ Setup Environment Variables
+Populate it with:
 
-1. Copy the `.env_example` file to `.env`:
+- Shared values (`CONTENTFUL_ENVIRONMENT`, `ENABLE_XRAY`, `EXECUTION_ENVIRONMENT`, ...)
+- Region-specific secrets prefixed with `EU_`, `US_`, `LAB_`, or `GEN_AI_` (e.g. `EU_CONTENTFUL_ACCESS_TOKEN`).
+- AWS profile names (`EU_AWS_PROFILE`, etc.).
 
-   ```sh
-   cp .env_example .env
-   ```
+## 🔐 Deploying Parameter Store secrets
 
-2. Update the `.env` file with **your OpenSearch credentials** and the necessary **Contentful credentials**:
+Run `deploy-ssm.sh` before any infrastructure stack so secrets exist ahead of time.
 
----
+```sh
+chmod +x deploy-ssm.sh
+./deploy-ssm.sh
+```
 
-## 🚀 Deployment
+What the script does:
 
-For OpenSearch deployment we use AWS cloudformation deploy. [Read More about why and how we deploy](docs/infra_deployment.md)
+1. Loads `.env` and validates every required variable.
+2. Prompts for the target region/account.
+3. Converts variable names to CamelCase parameters.
+4. Invokes `aws cloudformation deploy` with `templates/parameterStoreVariables.yml` to create/update the `/personalised-lobby/dev/*` keys.
 
-### 🔒 Secret Deployment
+## 🏗️ Deploying OpenSearch + API Gateway
 
-Before deploying your OpenSearch/API stack, run the `deploy-ssm.sh` script to push all sensitive values into SSM Parameter Store:
+Use the wrapper script to deploy into EU, US, Lab, or Gen-AI spaces. It automatically picks the right template, stack name, and profile for the region.
 
-1. Make it executable:
+```sh
+chmod +x deploy.sh
+./deploy.sh
+```
 
-   ```sh
-   chmod +x deploy-ssm.sh
-   ```
-
-2. Execute it:
-
-   ```sh
-   ./deploy-ssm.sh
-   ```
-
-This script:
-
-- Reads your `.env` variables
-- Prompts for the target region (EU/US/Lab)
-- Pushes each secret and configuration value into `/personalised-lobby/dev/...` in SSM
-
----
-
-### 🚀 Stack Deployment
-
-Deployment for the OpenSearch & API Gateway stack:
-
-#### **Use Deployment Script**
-
-1. Make the deploy script executable:
-
-   ```sh
-   chmod +x deploy.sh
-   ```
-
-2. Deploy with:
-
-   ```sh
-   ./deploy.sh
-   ```
-
-Alternatively, you can use the AWS CLI directly:
+Under the hood it calls:
 
 ```sh
 aws cloudformation deploy \
   --template-file templates/osGatewayDevStack.yml \
   --stack-name personalised-lobby-os-dev \
   --profile lobby-playground \
-  --region eu-west-1
+  --region eu-west-1 \
+  --parameter-overrides MasterUserName=... MasterUserPassword=...
 ```
 
----
+### Managing the stack manually
 
-## 🛠 Managing Your Stack
+- **Update:** rerun `aws cloudformation deploy` with your modified template.
+- **Delete:** `aws cloudformation delete-stack --stack-name personalised-lobby-os-dev --profile <profile>`.
 
-### **Update Stack**
+## 📡 Version Dashboard Workflows
 
-If you make changes to the template:
+### Discover deployed Lambda container versions
+
+`scripts/get_latest_deployed_lambda_versions.sh` scans all Lambda functions in the configured account/region and prints the parsed Docker tag.
 
 ```sh
-aws cloudformation update-stack \
-  --template-file templates/osGatewayDevStack.yml \
-  --stack-name personalised-lobby-os-dev \
-  --profile lobby-playground \
-  --region eu-west-1
+./scripts/get_latest_deployed_lambda_versions.sh
 ```
 
-### **Delete Stack**
+### Read dashboard values via Consul proxy
 
-To remove all resources:
+`scripts/get_deployed_versions_vers_dash.sh [stg|prod|instance]` fetches `versions/coreplatform/<instance>` keys and prints a formatted table.
+
+### Sync Lambda versions to the dashboard
+
+`node_scripts/versionDashboardUpdate.js` combines the Bash output with a Lambda↔component map and prepares curl commands.
+
+Manual mode (default) writes JSON payloads to `out/version_dashboard_curls.json` for inspection:
 
 ```sh
-aws cloudformation delete-stack --stack-name opensearch-demo-stack --profile lobby-playground
+ENV=stg MODE=manual node node_scripts/versionDashboardUpdate.js
 ```
 
----
-
-## 💡 Example API Call
-
-After deployment, test your API Gateway:
+Auto mode executes PUTs immediately and verifies each value:
 
 ```sh
-curl -X GET "https://your-api-id.execute-api.eu-west-1.amazonaws.com/Dev/lobby/_cluster/health" \
-  -u "os_master_user:os_master_pass"
+ENV=prod MODE=auto node node_scripts/versionDashboardUpdate.js
 ```
 
-Expected response:
+### Inspect current dashboard state
 
-```json
-{
-  "cluster_name": "lobby-opensearch",
-  "status": "green",
-  "number_of_nodes": 4
-}
-```
+`node node_scripts/getDeployedVersions.js` prints tables for staging and production components directly from Consul using the configured proxy.
 
----
+## 🧭 Additional Documentation
 
-## Contributing to the project
+- `docs/infra_deployment.md` explains why OpenSearch must be deployed via CloudFormation (SAM does not support `AWS::OpenSearchService::Domain`) and outlines alternative IaC options such as AWS CDK.
 
-Before contributing, please review and follow these guidelines to ensure smooth collaboration and maintain a clean and cost-efficient development environment.
+## 🤝 Contributing Guidelines
 
-### 🚀 General Contribution Rules
+1. **Define infrastructure in YAML** – each new stack or resource change should live under `templates/`.
+2. **Reuse stack names** – extend existing stacks rather than creating duplicates unless you intentionally need an isolated stack.
+3. **Test safely** – deploy experiments to alternate regions (e.g., `us-west-2`) and delete temporary resources to avoid unnecessary AWS spend.
+4. **Secrets first** – always run `deploy-ssm.sh` before rolling out infra so CloudFormation resolves parameter references successfully.
+5. **Keep commits focused** – document major changes in the README/docs and submit PRs for review before merging.
+6. **Cleanup** – tear down unused stacks and parameters after testing to keep AWS costs predictable.
 
-- All new stacks **must** be defined using a `.yml` file under the **template repo**.
-- If you're adding to an **existing stack**, make sure to **reuse the same stack name** when deploying. Avoid creating duplicate stacks unless absolutely necessary.
-- **Extending an existing stack:** ✅ Yes, you can extend a stack by adding/modifying resources in the `.yml` file.
-- **Nuking a stack:** ❌ Not always required. Only destroy and recreate a stack if fundamental changes require a full rebuild.
+## 🙋 FAQ for New Contributors
 
-### ✅ Deployment & Testing
+- **Can we use AWS SAM for OpenSearch?** No. SAM targets serverless resources only. Use the provided CloudFormation templates or migrate to AWS CDK for unified stacks.
+- **How do Lambda versions reach the dashboard?** Bash scripts fetch image tags; Node scripts map them to Consul keys and either emit curl commands or push updates automatically via a corporate proxy.
+- **Where do Contentful credentials live?** They are stored in `/personalised-lobby/dev/*` Parameter Store keys, provisioned through the dedicated template and populated via `deploy-ssm.sh`.
 
-- **Deploy secrets** first using `deploy-ssm.sh` to ensure all sensitive values are safely stored.
-- **Every addition must be tested** before committing. This means:
-  - Deploying resources in a separate **test environment**.
-  - If you create resources for testing, **delete them immediately after** to avoid unnecessary AWS costs.
-  - Avoid interfering with the main **development environment**.
-- **Test in a different region:**
-  - Our main region for Europe is **eu-west-1** for production/dev.
-  - Our main region for the US is **us-east-1** for production/dev.
-  - For testing, use a different region (e.g., **us-west-3**) to avoid conflicts.
-
-### 💰 Cost Management
-
-- **AWS resources that are not actively used must be deleted after testing.**
-- If you deploy temporary resources, **track them and clean up** once done.
-- Regularly review active stacks and remove anything obsolete to prevent excessive AWS billing.
-
-### 🛠️ Code & Repo Cleanliness
-
-- **Keep your commits clean and meaningful.** No unnecessary changes.
-- **Follow naming conventions** for stacks and resources.
-- **Document major changes** so the team knows what’s up.
-- **PR reviews are required** before merging any changes.
-
-### 💡 Best Practices
-
-- Use **version control** for `.yml` files.
-- **Automate** cleanup tasks where possible.
-- Always **double-check before deleting** any shared resources.
-
-## Useful References
-
-- [AWS Infrastructure as Code](https://docs.aws.amazon.com/whitepapers/latest/introduction-devops-aws/infrastructure-as-code.html)
-- [AWS Infrastructure Composer](https://docs.aws.amazon.com/pdfs/infrastructure-composer/latest/dg/infrastructure-composer.pdf)
+Welcome aboard! Use this guide to get the stack running locally, keep secrets safe, and maintain observability over deployed Lambda versions.
